@@ -2,19 +2,16 @@ from pyspark import SparkContext, SparkConf
 from pyspark.sql import SQLContext
 import base64
 from operator import add
+from graphframes import *
+import argparse
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--input_path", "-ip", type=str, default=None)
+parser.add_argument("--post_id", "-pi", type=str, default=None)
+args = vars(parser.parse_args())
 
-# To make it work on my computer:
-# Download graphframes from: http://dl.bintray.com/spark-packages/maven/graphframes/graphframes/0.8.1-spark3.0-s_2.12/
-# as a .jar file, and add it in the same folder as this file. Uncomment the two lines below.
-# import os
-# os.environ["PYSPARK_SUBMIT_ARGS"] = "--packages graphframes:graphframes:0.8.1-spark3.0-s_2.12 --jars graphframes-0.8.0-spark3.0-s_2.12.jar"
-# from graphframes import *
-
-
-# TODO: Read these from args.
-dataset_path = "data"
-id_of_post = "14"
+dataset_path = args['input_path'] # data
+id_of_post = args['post_id']      # 14
 
 stopwords = ["a","about","above","after","again","against","ain","all","am","an","and",
 "any","are","aren","aren't","as","at","be","because","been","before","being",
@@ -128,8 +125,6 @@ tokens_with_stopwords = post_no_punctuation.map(lambda p: [word.strip(".") for w
 
 tokens = tokens_with_stopwords.map(lambda t: [word for word in t if not word in stopwords])
 
-# tokens_with_id = tokens.map(lambda t: [(i, w) for (i, w) in enumerate(t)])
-
 def window(seq):
   num_chunks = ((len(seq) - 5)) + 1
   windows = []
@@ -159,14 +154,7 @@ def map_to_id(tokens):
   return token_ids
 
 
-# noe = tokens.map(map_to_id)
 edges = sc.parallelize(tokens.map(map_to_id).map(window).map(make_edges).first()).distinct() #.map(map_to_id) #.map(make_edges)
-# edges = sc.parallelize(tokens.map(window).map(map_to_id).map(make_edges).first()).distinct()
-
-# only_id_1 = edges.filter(lambda e: e[0] == 1)
-
-# for node in noe.collect():
-#   print(node)
 
 sqlContext = SQLContext(sc)
 v = sqlContext.createDataFrame(vertices, ["term", "id"])
@@ -176,12 +164,8 @@ v.show()
 
 e.show()
 
-# sc.addPyFile('graphframes.zip')
-
-# from graphframes import *
-
 g = GraphFrame(v, e)
 
 pr = g.pageRank(resetProbability=0.15, tol=0.0001)
-pr.vertices.select("id", "pagerank").show()
+pr.vertices.select("term", "pagerank").show()
 
