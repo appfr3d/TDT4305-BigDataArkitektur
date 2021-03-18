@@ -3,8 +3,18 @@ from pyspark.sql import SQLContext
 import base64
 from operator import add
 
-dataset_path = "data"
 
+# To make it work on my computer:
+# Download graphframes from: http://dl.bintray.com/spark-packages/maven/graphframes/graphframes/0.8.1-spark3.0-s_2.12/
+# as a .jar file, and add it in the same folder as this file. Uncomment the two lines below.
+# import os
+# os.environ["PYSPARK_SUBMIT_ARGS"] = "--packages graphframes:graphframes:0.8.1-spark3.0-s_2.12 --jars graphframes-0.8.0-spark3.0-s_2.12.jar"
+# from graphframes import *
+
+
+# TODO: Read these from args.
+dataset_path = "data"
+id_of_post = "14"
 
 stopwords = ["a","about","above","after","again","against","ain","all","am","an","and",
 "any","are","aren","aren't","as","at","be","because","been","before","being",
@@ -102,10 +112,10 @@ posts_file_header = posts_file_unfiltered.first()
 posts_file = posts_file_unfiltered.filter(lambda row: row != posts_file_header)
 posts = posts_file.map(lambda line: line.split("\t"))
 
-# only_post_14 = posts.filter(lambda post: post[0] == "14")
+given_post = posts.filter(lambda post: post[0] == id_of_post)
 
 punctuation = '!"#$%&\'()*+,-/:;<=>?@[\\]^_`{|}~\t'
-post_body = posts.map(lambda p: base64.b64decode(p[5]).decode('utf-8').lower())
+post_body = given_post.map(lambda p: base64.b64decode(p[5]).decode('utf-8').lower())
 
 def remove_punctuation(text):
   for p in punctuation:
@@ -118,5 +128,60 @@ tokens_with_stopwords = post_no_punctuation.map(lambda p: [word.strip(".") for w
 
 tokens = tokens_with_stopwords.map(lambda t: [word for word in t if not word in stopwords])
 
+# tokens_with_id = tokens.map(lambda t: [(i, w) for (i, w) in enumerate(t)])
 
-print(tokens.first())
+def window(seq):
+  num_chunks = ((len(seq) - 5)) + 1
+  windows = []
+  for i in range(num_chunks):
+    windows.append(seq[i:i+5])
+  return windows
+
+def make_edges(windows):
+  edges = []
+  for window in windows:
+    for i in range(len(window)):
+      for j in range(len(window)):
+        if not i == j:
+          edges.append((window[i], window[j]))
+  return edges
+
+
+vertices = sc.parallelize(tokens.first()).distinct().zipWithIndex().collect()
+
+# for every word in tokens, change it to the id
+def map_to_id(tokens):
+  token_ids = []
+  for token in tokens:
+    for node in vertices:
+      if node[0] == token:
+        token_ids.append(node[1])
+  return token_ids
+
+
+# noe = tokens.map(map_to_id)
+edges = sc.parallelize(tokens.map(map_to_id).map(window).map(make_edges).first()).distinct() #.map(map_to_id) #.map(make_edges)
+# edges = sc.parallelize(tokens.map(window).map(map_to_id).map(make_edges).first()).distinct()
+
+# only_id_1 = edges.filter(lambda e: e[0] == 1)
+
+# for node in noe.collect():
+#   print(node)
+
+sqlContext = SQLContext(sc)
+v = sqlContext.createDataFrame(vertices, ["term", "id"])
+e = sqlContext.createDataFrame(edges, ["src", "dst"])
+
+v.show()
+
+e.show()
+
+# sc.addPyFile('graphframes.zip')
+
+# from graphframes import *
+
+g = GraphFrame(v, e)
+
+pr = g.pageRank(resetProbability=0.15, tol=0.0001)
+pr.vertices.select("id", "pagerank").show()
+

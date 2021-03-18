@@ -151,7 +151,7 @@ print('Done creating graph!')
 # Test:
 # print("test first edge:", edges.first())
 # print("test max weight edge:", edges.max(key=lambda e: e[2]))
-# max weigh is from a user to the same user, which make sense as one usually ansewe to comments
+# max weigh is from a user to the same user, which make sense as one usually ansewer to comments
 # on your own post. 
 
 
