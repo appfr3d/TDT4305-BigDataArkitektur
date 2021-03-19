@@ -179,6 +179,7 @@ e.show()
 # Construct the graph with graphframes
 g = GraphFrame(v, e)
 
+# Finally, calculate the page rank and show the result
 # From @56 in piazza it could be good to change out tol=0001 with maxIter=30 to reduce computation time 
 pr = g.pageRank(resetProbability=0.15, tol=0.0001)
 pr.vertices.select("term", "pagerank").show()
