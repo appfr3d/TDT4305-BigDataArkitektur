@@ -5,14 +5,17 @@ from operator import add
 from graphframes import *
 import argparse
 
+# Read the input arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--input_path", "-ip", type=str, default=None)
 parser.add_argument("--post_id", "-pi", type=str, default=None)
 args = vars(parser.parse_args())
 
+# Save arguments in variables 
 dataset_path = args['input_path'] # data
 id_of_post = args['post_id']      # 14
 
+# Stopwords from https://gist.github.com/habedi/c7229ee5bd50bf49f5b2bc404366344d
 stopwords = ["a","about","above","after","again","against","ain","all","am","an","and",
 "any","are","aren","aren't","as","at","be","because","been","before","being",
 "below","between","both","but","by","can","couldn","couldn't","d","did","didn",
@@ -100,20 +103,26 @@ stopwords = ["a","about","above","after","again","against","ain","all","am","an"
 "presumably","reasonably","second","secondly","sensible","serious","seriously",
 "sure","t's","third","thorough","thoroughly","three","well","wonder"]
 
+# Start Spark enviornment
 conf = SparkConf().setAppName("bigdata-prosjekt").setMaster("local[*]")
 sc = SparkContext(conf=conf)
 
-# Stage 1
-posts_file_unfiltered = sc.textFile(dataset_path + "/posts.csv")
+### Stage one
+
+# Parse datafile
+posts_file_unfiltered = sc.textFile(dataset_path + "/posts.csv.gz")
 posts_file_header = posts_file_unfiltered.first()
 posts_file = posts_file_unfiltered.filter(lambda row: row != posts_file_header)
 posts = posts_file.map(lambda line: line.split("\t"))
 
+# Select one post based on input argument
 given_post = posts.filter(lambda post: post[0] == id_of_post)
 
+# 1. and 2.: Decode post body and turn characters to lower case
 punctuation = '!"#$%&\'()*+,-/:;<=>?@[\\]^_`{|}~\t'
 post_body = given_post.map(lambda p: base64.b64decode(p[5]).decode('utf-8').lower())
 
+# 2 and 3: Remove punktuations and symbols except DOT
 def remove_punctuation(text):
   for p in punctuation:
     text = text.replace(p, " ")
@@ -121,8 +130,10 @@ def remove_punctuation(text):
 
 post_no_punctuation = post_body.map(remove_punctuation)
 
+# 4, 5 and 6: Tokenize based on whitespace, remove short tokens and remove DOT characters at beginning and end og tokens
 tokens_with_stopwords = post_no_punctuation.map(lambda p: [word.strip(".") for word in p.split() if len(word) >=3])
 
+# 7: Remove stopwords from list of tokens
 tokens = tokens_with_stopwords.map(lambda t: [word for word in t if not word in stopwords])
 
 def window(seq):
@@ -141,7 +152,7 @@ def make_edges(windows):
           edges.append((window[i], window[j]))
   return edges
 
-
+# Create vertices with a given id and the token
 vertices = sc.parallelize(tokens.first()).distinct().zipWithIndex().collect()
 
 # for every word in tokens, change it to the id
@@ -153,19 +164,22 @@ def map_to_id(tokens):
         token_ids.append(node[1])
   return token_ids
 
+# Create edges that use the same id-s as the vertices
+edges = sc.parallelize(tokens.map(map_to_id).map(window).map(make_edges).first()).distinct()
 
-edges = sc.parallelize(tokens.map(map_to_id).map(window).map(make_edges).first()).distinct() #.map(map_to_id) #.map(make_edges)
-
+# Create a sqlContext and map the vertices and edges to dataframes
 sqlContext = SQLContext(sc)
 v = sqlContext.createDataFrame(vertices, ["term", "id"])
 e = sqlContext.createDataFrame(edges, ["src", "dst"])
 
+# Show the vertices and edges
 v.show()
-
 e.show()
 
+# Construct the graph with graphframes
 g = GraphFrame(v, e)
 
+# From @56 in piazza it could be good to change out tol=0001 with maxIter=30 to reduce computation time 
 pr = g.pageRank(resetProbability=0.15, tol=0.0001)
 pr.vertices.select("term", "pagerank").show()
 
